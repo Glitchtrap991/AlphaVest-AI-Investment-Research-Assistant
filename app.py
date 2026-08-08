@@ -19,6 +19,39 @@ st.set_page_config(
     layout="wide",
 )
 
+# ── Custom CSS for Enlarged Input Area & Premium Styling ──────────────────────
+st.markdown(
+    """
+    <style>
+    /* Enlarge Chat Input Area */
+    .stChatInput textarea {
+        font-size: 1.15rem !important;
+        min-height: 90px !important;
+        border-radius: 12px !important;
+        border: 2px solid #4f46e5 !important;
+        padding: 12px !important;
+        background-color: #0f172a !important;
+        color: #f8fafc !important;
+    }
+    .stChatInput textarea:focus {
+        border-color: #6366f1 !important;
+        box-shadow: 0 0 10px rgba(99, 102, 241, 0.4) !important;
+    }
+    /* Tab Styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 12px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        font-size: 1.1rem;
+        font-weight: 600;
+        padding: 10px 20px;
+        border-radius: 8px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ── Session state defaults ───────────────────────────────────────────────────
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = str(uuid.uuid4())
@@ -26,8 +59,6 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "last_report_text" not in st.session_state:
     st.session_state.last_report_text = None
-if "email_toast_shown" not in st.session_state:
-    st.session_state.email_toast_shown = False
 
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
@@ -88,6 +119,9 @@ tab_chat, tab_calc, tab_dashboard = st.tabs([
 # TAB 1: AI RESEARCH ASSISTANT (CHAT)
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_chat:
+    st.markdown("### 🔍 Research & Query Assistant")
+    st.caption("Type your query below. The assistant will search the web, Wikipedia, and your uploaded PDF knowledge base.")
+
     # Render chat history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
@@ -110,7 +144,10 @@ with tab_chat:
                         st.markdown(details["calculations"])
 
                 if details.get("email_status"):
-                    st.success(f"📧 {details['email_status']}")
+                    if "DELIVERED SUCCESSFULLY" in details["email_status"]:
+                        st.success(f"📧 {details['email_status']}")
+                    else:
+                        st.warning(f"📧 {details['email_status']}")
 
                 if details.get("recommendation"):
                     with st.expander("💡 Final Recommendation"):
@@ -125,8 +162,10 @@ with tab_chat:
             mime="text/plain",
         )
 
-    # Chat Input
-    user_input = st.chat_input("Ask about any company, market, calculation, or uploaded report…")
+    st.divider()
+
+    # Prominent Enlarged Input Area
+    user_input = st.chat_input("💬 Ask about any company, market, calculation, or uploaded report… (e.g. 'Research NVIDIA and email a summary to user@example.com')")
 
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
@@ -135,7 +174,7 @@ with tab_chat:
 
         # Invoke agent
         with st.chat_message("assistant"):
-            with st.spinner("Researching…"):
+            with st.spinner("Researching & Analyzing…"):
                 from src.agent import run_agent
                 result = run_agent(user_input, st.session_state.thread_id)
 
@@ -163,7 +202,10 @@ with tab_chat:
                             details["calculations"] += content + "\n\n"
                         elif tool_name == "send_email":
                             details["email_status"] = content
-                            st.toast("📧 Success: Email dispatched!", icon="✅")
+                            if "DELIVERED SUCCESSFULLY" in content:
+                                st.toast("📧 Success: Email delivered to recipient!", icon="✅")
+                            else:
+                                st.toast("⚠️ Email requires authentication credentials", icon="⚠️")
 
                     elif msg.type == "ai" and getattr(msg, "content", ""):
                         assistant_text = msg.content
@@ -179,7 +221,11 @@ with tab_chat:
             st.markdown(assistant_text)
 
             if details["email_status"]:
-                st.success(f"📧 {details['email_status']}")
+                if "DELIVERED SUCCESSFULLY" in details["email_status"]:
+                    st.success(f"📧 {details['email_status']}")
+                else:
+                    st.warning(f"📧 {details['email_status']}")
+
             if details["sources"]:
                 with st.expander("🔗 Sources Used"):
                     st.markdown(details["sources"])

@@ -13,3 +13,4 @@ python-dotenv>=1.1.0
 duckduckgo-search>=7.5.0
 wikipedia>=1.4.0
 pypdf>=5.0.0
+ddgs>=9.14.1

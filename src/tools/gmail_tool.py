@@ -1,27 +1,38 @@
 """
-src/tools/gmail_tool.py — Email sending tool using LangChain Community GmailToolkit.
+src/tools/gmail_tool.py — Email sending tool using latest langchain_google_community GmailToolkit.
 
-Replaces standard SMTP with langchain_community.agent_toolkits.GmailToolkit / GmailSendMessage.
+Uses the official langchain_google_community integration package to format credentials
+and send emails via Gmail API.
 """
 from __future__ import annotations
 
+import inspect
 import json
 import os
 from pathlib import Path
 
 from langchain_core.tools import tool
-from langchain_community.agent_toolkits import GmailToolkit
-from langchain_community.tools.gmail.send_message import GmailSendMessage
-from langchain_community.tools.gmail.utils import (
-    build_resource_service,
-    get_gmail_credentials,
-)
+
+try:
+    from langchain_google_community import GmailToolkit
+    from langchain_google_community.gmail.send_message import GmailSendMessage
+    from langchain_google_community.gmail.utils import (
+        build_resource_service,
+        get_gmail_credentials,
+    )
+except ImportError:
+    from langchain_community.agent_toolkits import GmailToolkit
+    from langchain_community.tools.gmail.send_message import GmailSendMessage
+    from langchain_community.tools.gmail.utils import (
+        build_resource_service,
+        get_gmail_credentials,
+    )
 
 from src.config import _ROOT, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET
 
 
 def _ensure_credentials_file() -> Path | None:
-    """Ensure credentials.json exists if CLIENT_ID and CLIENT_SECRET are available in .env."""
+    """Ensure credentials.json exists in standard Google OAuth 2.0 format."""
     creds_path = _ROOT / "credentials.json"
     if creds_path.exists():
         return creds_path
@@ -56,11 +67,18 @@ def _get_gmail_resource():
         return None
 
     try:
-        credentials = get_gmail_credentials(
-            token_file=str(token_path) if token_path.exists() else None,
-            client_secrets_file=str(creds_path) if creds_path and creds_path.exists() else None,
-            scopes=["https://mail.google.com/"],
-        )
+        kwargs = {
+            "token_file": str(token_path) if token_path.exists() else None,
+            "scopes": ["https://mail.google.com/"],
+        }
+        if creds_path and creds_path.exists():
+            sig = inspect.signature(get_gmail_credentials)
+            if "client_sercret_file" in sig.parameters:
+                kwargs["client_sercret_file"] = str(creds_path)
+            elif "client_secrets_file" in sig.parameters:
+                kwargs["client_secrets_file"] = str(creds_path)
+
+        credentials = get_gmail_credentials(**kwargs)
         return build_resource_service(credentials=credentials)
     except Exception:
         return None
@@ -68,7 +86,7 @@ def _get_gmail_resource():
 
 @tool
 def send_email(to: str, subject: str, body: str) -> str:
-    """Send an email using LangChain Community Gmail Toolkit.
+    """Send an email using Gmail Toolkit.
 
     Use this when asked to email an investment report, summary, or analysis.
 
@@ -84,7 +102,6 @@ def send_email(to: str, subject: str, body: str) -> str:
 
     if api_resource is not None:
         try:
-            # Using GmailToolkit / GmailSendMessage from langchain_community
             toolkit = GmailToolkit(api_resource=api_resource)
             send_tool = GmailSendMessage(api_resource=api_resource)
 
@@ -94,7 +111,7 @@ def send_email(to: str, subject: str, body: str) -> str:
                 "to": to_list,
                 "subject": subject,
             })
-            return f"✅ Email sent via LangChain Gmail Toolkit to {to} with subject '{subject}'. Result: {res}"
+            return f"✅ Email sent via Gmail Toolkit to {to} with subject '{subject}'. Result: {res}"
         except Exception as e:
             return (
                 f"⚠️ Gmail Toolkit send error: {e}\n\n"
@@ -103,7 +120,7 @@ def send_email(to: str, subject: str, body: str) -> str:
 
     # Fallback preview mode when credentials/token file not yet authenticated
     return (
-        f"📧 [LangChain Gmail Toolkit — Preview]\n\n"
+        f"📧 [Gmail Toolkit — Preview]\n\n"
         f"To: {to}\n"
         f"Subject: {subject}\n"
         f"{'─' * 40}\n"

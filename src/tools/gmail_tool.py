@@ -1,17 +1,12 @@
 """
-src/tools/gmail_tool.py — Email sending tool.
+src/tools/gmail_tool.py — Email sending tool using LangChain Community GmailToolkit.
 
-Combines Gmail Toolkit (via OAuth token.json / GmailSendMessage) and 
-Gmail SMTP fallback (via GMAIL_SENDER_EMAIL & GMAIL_APP_PASSWORD) 
-to ensure real, reliable email delivery to the recipient's inbox.
+Replaces standard SMTP with langchain_community.agent_toolkits.GmailToolkit / GmailSendMessage.
 """
 from __future__ import annotations
 
-import base64
 import json
 import os
-import smtplib
-from email.mime.text import MIMEText
 from pathlib import Path
 
 from langchain_core.tools import tool
@@ -53,17 +48,16 @@ def _ensure_credentials_file() -> Path | None:
 
 
 def _get_gmail_resource():
-    """Build and return the Gmail API resource if token.json exists."""
+    """Build and return the Gmail API resource using credentials/token."""
     creds_path = _ensure_credentials_file()
     token_path = _ROOT / "token.json"
 
-    # Only attempt OAuth if token.json already exists to avoid blocking local_server prompt
-    if not token_path.exists():
+    if not (token_path.exists() or (creds_path and creds_path.exists())):
         return None
 
     try:
         credentials = get_gmail_credentials(
-            token_file=str(token_path),
+            token_file=str(token_path) if token_path.exists() else None,
             client_secrets_file=str(creds_path) if creds_path and creds_path.exists() else None,
             scopes=["https://mail.google.com/"],
         )
@@ -74,65 +68,47 @@ def _get_gmail_resource():
 
 @tool
 def send_email(to: str, subject: str, body: str) -> str:
-    """Send an email to a recipient address with a subject and body.
+    """Send an email using LangChain Community Gmail Toolkit.
 
-    Use this when asked to email an investment report, executive summary, or findings.
+    Use this when asked to email an investment report, summary, or analysis.
 
     Args:
-        to: Recipient email address (e.g. "client@example.com").
-        subject: Subject line of the email.
-        body: The full text content of the email.
+        to: Recipient email address.
+        subject: Email subject line.
+        body: The full email body text.
 
     Returns:
-        Status message confirming whether the email was physically sent or if authentication is required.
+        Confirmation message of email dispatch status.
     """
-    # 1. Try Gmail SMTP if GMAIL_SENDER_EMAIL & GMAIL_APP_PASSWORD exist
-    sender_email = os.getenv("GMAIL_SENDER_EMAIL", "").strip()
-    app_password = os.getenv("GMAIL_APP_PASSWORD", "").strip()
-
-    if sender_email and app_password:
-        try:
-            msg = MIMEText(body, "plain", "utf-8")
-            msg["From"] = sender_email
-            msg["To"] = to
-            msg["Subject"] = subject
-
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-                server.login(sender_email, app_password)
-                server.send_message(msg)
-
-            return f"✅ EMAIL DELIVERED SUCCESSFULLY to {to} via Gmail SMTP with subject: '{subject}'."
-        except Exception as e:
-            return f"⚠️ SMTP Dispatch error to {to}: {e}."
-
-    # 2. Try Gmail Toolkit (OAuth API) if token.json exists
     api_resource = _get_gmail_resource()
+
     if api_resource is not None:
         try:
+            # Using GmailToolkit / GmailSendMessage from langchain_community
+            toolkit = GmailToolkit(api_resource=api_resource)
             send_tool = GmailSendMessage(api_resource=api_resource)
+
             to_list = [to] if isinstance(to, str) else to
             res = send_tool.invoke({
                 "message": body,
                 "to": to_list,
                 "subject": subject,
             })
-            return f"✅ EMAIL DELIVERED SUCCESSFULLY to {to} via Gmail API Toolkit! Result: {res}"
+            return f"✅ Email sent via LangChain Gmail Toolkit to {to} with subject '{subject}'. Result: {res}"
         except Exception as e:
-            return f"⚠️ Gmail Toolkit Dispatch error: {e}"
+            return (
+                f"⚠️ Gmail Toolkit send error: {e}\n\n"
+                f"Email Preview:\nTo: {to}\nSubject: {subject}\n\n{body}"
+            )
 
-    # 3. Explicit notification when email could NOT be physically sent due to missing credentials
+    # Fallback preview mode when credentials/token file not yet authenticated
     return (
-        f"⚠️ EMAIL NOT DELIVERED (AUTHENTICATION REQUIRED)\n\n"
-        f"The email could not be physically transmitted to '{to}' because Gmail credentials are not configured in your `.env` file.\n\n"
-        f"--- Prepared Email Content ---\n"
+        f"📧 [LangChain Gmail Toolkit — Preview]\n\n"
         f"To: {to}\n"
         f"Subject: {subject}\n"
         f"{'─' * 40}\n"
         f"{body}\n"
         f"{'─' * 40}\n\n"
-        f"💡 TO DELIVER REAL EMAILS TO RECIPIENT INBOXES:\n"
-        f"Add these 2 lines to your `.env` file in the project root:\n"
-        f"GMAIL_SENDER_EMAIL=\"your.email@gmail.com\"\n"
-        f"GMAIL_APP_PASSWORD=\"your-16-character-app-password\"\n\n"
-        f"(Generate an App Password in 10s at: Google Account -> Security -> 2-Step Verification -> App Passwords)"
+        f"Note: To dispatch emails using Gmail Toolkit, place your `credentials.json` or `token.json` "
+        f"in the project root directory."
     )

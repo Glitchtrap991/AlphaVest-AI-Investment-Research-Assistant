@@ -1,0 +1,5 @@
+.env
+.env.example
+uv.lock
+data/chroma_db/*
+data/uploads/*

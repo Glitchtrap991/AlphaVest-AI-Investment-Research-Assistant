@@ -102,3 +102,42 @@ def search_uploaded_reports(query: str) -> str:
         output_parts.append(f"[{source}, p.{page}]\n{doc}")
 
     return "\n\n---\n\n".join(output_parts)
+
+
+def get_knowledge_base_stats() -> dict:
+    """Retrieve detailed statistics and metadata breakdown of uploaded documents."""
+    pdf_files = sorted(UPLOADS_DIR.glob("*.pdf"))
+    total_files = len(pdf_files)
+    total_chunks = 0
+    file_details = []
+
+    try:
+        collection = _chroma_client.get_collection(name=_COLLECTION_NAME)
+        total_chunks = collection.count()
+        raw_data = collection.get(include=["metadatas", "documents"])
+    except Exception:
+        raw_data = {"metadatas": [], "documents": []}
+
+    metadatas = raw_data.get("metadatas", []) or []
+    documents = raw_data.get("documents", []) or []
+
+    for pf in pdf_files:
+        size_kb = round(pf.stat().st_size / 1024, 1)
+        file_chunks = sum(1 for m in metadatas if m and m.get("source") == pf.name)
+        file_details.append({
+            "filename": pf.name,
+            "size_kb": size_kb,
+            "chunks": file_chunks,
+            "path": str(pf),
+        })
+
+    return {
+        "total_files": total_files,
+        "total_chunks": total_chunks,
+        "files_info": file_details,
+        "raw_chunks": [
+            {"doc": doc, "meta": meta}
+            for doc, meta in zip(documents, metadatas)
+        ] if documents and metadatas else []
+    }
+

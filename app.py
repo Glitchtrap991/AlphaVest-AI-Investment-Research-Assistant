@@ -19,38 +19,34 @@ st.set_page_config(
     layout="wide",
 )
 
-# ── Custom CSS for enlarged typography ───────────────────────────────────────
-st.markdown("""
-<style>
-/* Chat input box text size */
-.stChatInput textarea {
-    font-size: 1.2rem !important;
-    line-height: 1.5 !important;
-}
+# ── Custom Styling (Larger Chat Input & Text) ────────────────────────────────
+st.markdown(
+    """
+    <style>
+    /* Chat input box text size & padding */
+    div[data-testid="stChatInput"] textarea {
+        font-size: 1.15rem !important;
+        font-weight: 400 !important;
+        line-height: 1.6 !important;
+        min-height: 60px !important;
+        padding: 12px 16px !important;
+    }
 
-/* Chat messages text size */
-[data-testid="stChatMessage"] {
-    font-size: 1.15rem !important;
-    line-height: 1.6 !important;
-}
+    /* Chat message text readability */
+    div[data-testid="stChatMessage"] {
+        font-size: 1.05rem !important;
+        line-height: 1.65 !important;
+    }
 
-[data-testid="stChatMessage"] p, [data-testid="stChatMessage"] li {
-    font-size: 1.15rem !important;
-}
-
-/* Navigation tabs text */
-button[data-baseweb="tab"] div {
-    font-size: 1.15rem !important;
-    font-weight: 600 !important;
-}
-
-/* Form labels */
-.stSelectbox label, .stNumberInput label, .stTextInput label {
-    font-size: 1.1rem !important;
-    font-weight: 600 !important;
-}
-</style>
-""", unsafe_allow_html=True)
+    /* Input container rounding & shadow */
+    div[data-testid="stChatInput"] {
+        border-radius: 12px !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ── Session state defaults ───────────────────────────────────────────────────
 if "thread_id" not in st.session_state:

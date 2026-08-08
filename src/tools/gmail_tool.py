@@ -1,33 +1,33 @@
 """
-src/tools/gmail_tool.py — Email sending tool.
+src/tools/gmail_tool.py — Email sending tool using LangChain Community GmailToolkit.
 
-Supports:
-  1. Gmail OAuth API (via credentials.json / token.json or CLIENT_ID & CLIENT_SECRET from .env)
-  2. Gmail SMTP (via GMAIL_SENDER_EMAIL & GMAIL_APP_PASSWORD in .env)
-  3. Informative preview fallback if no credentials are configured.
+Replaces standard SMTP with langchain_community.agent_toolkits.GmailToolkit / GmailSendMessage.
 """
 from __future__ import annotations
 
-import base64
 import json
 import os
-import smtplib
-from email.mime.text import MIMEText
 from pathlib import Path
 
 from langchain_core.tools import tool
+from langchain_community.agent_toolkits import GmailToolkit
+from langchain_community.tools.gmail.send_message import GmailSendMessage
+from langchain_community.tools.gmail.utils import (
+    build_resource_service,
+    get_gmail_credentials,
+)
 
 from src.config import _ROOT, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET
 
 
 def _ensure_credentials_file() -> Path | None:
-    """Ensure credentials.json exists if CLIENT_ID and CLIENT_SECRET are available."""
+    """Ensure credentials.json exists if CLIENT_ID and CLIENT_SECRET are available in .env."""
     creds_path = _ROOT / "credentials.json"
     if creds_path.exists():
         return creds_path
 
-    client_id = GMAIL_CLIENT_ID or os.getenv("CLIENT_ID")
-    client_secret = GMAIL_CLIENT_SECRET or os.getenv("CLIENT_SECRET")
+    client_id = GMAIL_CLIENT_ID or os.getenv("CLIENT_ID", "")
+    client_secret = GMAIL_CLIENT_SECRET or os.getenv("CLIENT_SECRET", "")
 
     if client_id and client_secret:
         creds_data = {
@@ -47,23 +47,28 @@ def _ensure_credentials_file() -> Path | None:
     return None
 
 
-def _gmail_oauth_available() -> bool:
-    """Check if Gmail OAuth credentials file or token exists."""
-    token_path = _ROOT / "token.json"
+def _get_gmail_resource():
+    """Build and return the Gmail API resource using credentials/token."""
     creds_path = _ensure_credentials_file()
-    return token_path.exists() or (creds_path is not None and creds_path.exists())
+    token_path = _ROOT / "token.json"
 
+    if not (token_path.exists() or (creds_path and creds_path.exists())):
+        return None
 
-def _smtp_available() -> bool:
-    """Check if Gmail SMTP credentials are set in environment."""
-    sender = os.getenv("GMAIL_SENDER_EMAIL", "").strip()
-    app_pwd = os.getenv("GMAIL_APP_PASSWORD", "").strip()
-    return bool(sender and app_pwd)
+    try:
+        credentials = get_gmail_credentials(
+            token_file=str(token_path) if token_path.exists() else None,
+            client_secrets_file=str(creds_path) if creds_path and creds_path.exists() else None,
+            scopes=["https://mail.google.com/"],
+        )
+        return build_resource_service(credentials=credentials)
+    except Exception:
+        return None
 
 
 @tool
 def send_email(to: str, subject: str, body: str) -> str:
-    """Send an email to a client or colleague.
+    """Send an email using LangChain Community Gmail Toolkit.
 
     Use this when asked to email an investment report, summary, or analysis.
 
@@ -75,65 +80,35 @@ def send_email(to: str, subject: str, body: str) -> str:
     Returns:
         Confirmation message of email dispatch status.
     """
-    # 1. Try SMTP sending if App Password credentials exist
-    if _smtp_available():
-        sender_email = os.getenv("GMAIL_SENDER_EMAIL", "").strip()
-        app_password = os.getenv("GMAIL_APP_PASSWORD", "").strip()
+    api_resource = _get_gmail_resource()
+
+    if api_resource is not None:
         try:
-            msg = MIMEText(body, "plain", "utf-8")
-            msg["From"] = sender_email
-            msg["To"] = to
-            msg["Subject"] = subject
+            # Using GmailToolkit / GmailSendMessage from langchain_community
+            toolkit = GmailToolkit(api_resource=api_resource)
+            send_tool = GmailSendMessage(api_resource=api_resource)
 
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-                server.login(sender_email, app_password)
-                server.send_message(msg)
-
-            return f"✅ Email successfully sent to {to} with subject: '{subject}'."
+            to_list = [to] if isinstance(to, str) else to
+            res = send_tool.invoke({
+                "message": body,
+                "to": to_list,
+                "subject": subject,
+            })
+            return f"✅ Email sent via LangChain Gmail Toolkit to {to} with subject '{subject}'. Result: {res}"
         except Exception as e:
-            return f"⚠️ SMTP send failed to {to}: {e}. (Verify GMAIL_SENDER_EMAIL & GMAIL_APP_PASSWORD in .env)"
-
-    # 2. Try Gmail OAuth API if OAuth credentials/token exist
-    if _gmail_oauth_available():
-        try:
-            from langchain_google_community.gmail.utils import (
-                build_resource_service,
-                get_gmail_credentials,
+            return (
+                f"⚠️ Gmail Toolkit send error: {e}\n\n"
+                f"Email Preview:\nTo: {to}\nSubject: {subject}\n\n{body}"
             )
 
-            token_file = _ROOT / "token.json"
-            creds_file = _ROOT / "credentials.json"
-
-            credentials = get_gmail_credentials(
-                token_file=str(token_file) if token_file.exists() else None,
-                client_sercret_file=str(creds_file) if creds_file.exists() else None,
-                scopes=["https://mail.google.com/"],
-            )
-            api_resource = build_resource_service(credentials=credentials)
-
-            message = MIMEText(body)
-            message["to"] = to
-            message["subject"] = subject
-
-            raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
-            api_resource.users().messages().send(
-                userId="me", body={"raw": raw}
-            ).execute()
-
-            return f"✅ Email sent via Gmail API to {to} with subject '{subject}'."
-        except Exception as e:
-            return f"⚠️ Gmail OAuth send attempt failed: {e}.\n\nTo use standard SMTP without browser login, add `GMAIL_SENDER_EMAIL` and `GMAIL_APP_PASSWORD` to your `.env` file."
-
-    # 3. Fallback preview mode
+    # Fallback preview mode when credentials/token file not yet authenticated
     return (
-        f"📧 [Email Preview — Credentials needed for real dispatch]\n\n"
+        f"📧 [LangChain Gmail Toolkit — Preview]\n\n"
         f"To: {to}\n"
         f"Subject: {subject}\n"
         f"{'─' * 40}\n"
         f"{body}\n"
         f"{'─' * 40}\n\n"
-        f"💡 To enable automatic email sending, add these to your `.env` file:\n"
-        f"GMAIL_SENDER_EMAIL=\"your.email@gmail.com\"\n"
-        f"GMAIL_APP_PASSWORD=\"your-16-char-app-password\""
+        f"Note: To dispatch emails using Gmail Toolkit, place your `credentials.json` or `token.json` "
+        f"in the project root directory."
     )
-

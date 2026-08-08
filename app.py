@@ -10,7 +10,13 @@ from pathlib import Path
 import streamlit as st
 
 from src.config import UPLOADS_DIR
-from src.tools.pdf_rag_tool import build_knowledge_base, get_knowledge_base_stats
+try:
+    from src.tools.pdf_rag_tool import build_knowledge_base, get_knowledge_base_stats
+except ImportError:
+    from src.tools.pdf_rag_tool import build_knowledge_base
+
+    def get_knowledge_base_stats() -> dict:
+        return {"total_files": 0, "total_chunks": 0, "files_info": [], "raw_chunks": []}
 
 # ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(

@@ -3,3 +3,4 @@
 uv.lock
 data/chroma_db/*
 data/uploads/*
+credentials.json
